@@ -249,6 +249,54 @@ async def get_table_sample(
         )
 
 
+@router.delete("/databases/{database_id}/tables/{table_name}")
+async def delete_database_table(
+    database_id: int,
+    table_name: str,
+    db: Session = Depends(get_db)
+):
+    """Delete (Drop) a table or collection from the database"""
+    
+    db_conn = db.query(DatabaseConnection).filter(
+        DatabaseConnection.id == database_id
+    ).first()
+    
+    if not db_conn:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Database connection not found"
+        )
+    
+    try:
+        if db_conn.db_type.lower() == "mongodb":
+            from pymongo import MongoClient
+            client = MongoClient(db_conn.connection_string)
+            from urllib.parse import urlparse
+            parsed = urlparse(db_conn.connection_string)
+            mongo_db_name = parsed.path.lstrip('/') or "sample_mflix"
+            mongo_db = client.get_database(mongo_db_name)
+            mongo_db.drop_collection(table_name)
+        else:
+            from sqlalchemy import create_engine, text
+            engine = create_engine(db_conn.connection_string)
+            with engine.connect() as conn:
+                conn.execute(text(f"DROP TABLE {table_name}"))
+        
+        # Optionally invalidate schema_cache
+        db_conn.schema_cache = None
+        db.commit()
+        
+        logger.info(f"Dropped table/collection {table_name} from DB {database_id}")
+        return {"message": f"Table '{table_name}' deleted successfully"}
+        
+    except Exception as e:
+        logger.error(f"Failed to delete table {table_name}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete table: {str(e)}"
+        )
+
+
 @router.get("/queries/history", response_model=List[QueryResponse])
 async def get_query_history(
     database_id: int = None,
@@ -348,3 +396,41 @@ async def list_databases(db: Session = Depends(get_db)):
     ).all()
     
     return databases
+
+
+@router.delete("/databases/{database_id}")
+async def delete_database_connection(
+    database_id: int,
+    db: Session = Depends(get_db)
+):
+    """Delete a database connection and all associated data"""
+    
+    db_conn = db.query(DatabaseConnection).filter(
+        DatabaseConnection.id == database_id
+    ).first()
+    
+    if not db_conn:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Database connection not found"
+        )
+    
+    try:
+        # Delete associated queries first (foreign key constraint)
+        db.query(Query).filter(Query.database_id == database_id).delete()
+        
+        # Delete the database connection
+        db.delete(db_conn)
+        db.commit()
+        
+        logger.info(f"Deleted database connection {database_id}: {db_conn.name}")
+        
+        return {"message": f"Database '{db_conn.name}' deleted successfully", "id": database_id}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to delete database connection {database_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete database: {str(e)}"
+        )
+

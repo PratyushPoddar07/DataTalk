@@ -13,7 +13,6 @@ interface AppState {
   isLoading: boolean;
   
   // UI state
-  sidebarOpen: boolean;
   theme: 'dark' | 'light';
   
   // Actions
@@ -24,7 +23,6 @@ interface AppState {
   addQuery: (query: Query) => void;
   setCurrentQuery: (query: string) => void;
   setIsLoading: (loading: boolean) => void;
-  toggleSidebar: () => void;
   setTheme: (theme: 'dark' | 'light') => void;
 }
 
@@ -36,7 +34,6 @@ export const useAppStore = create<AppState>((set) => ({
   queries: [],
   currentQuery: '',
   isLoading: false,
-  sidebarOpen: true,
   theme: 'dark',
   
   // Actions
@@ -55,10 +52,6 @@ export const useAppStore = create<AppState>((set) => ({
   setCurrentQuery: (query) => set({ currentQuery: query }),
   
   setIsLoading: (loading) => set({ isLoading: loading }),
-  
-  toggleSidebar: () => set((state) => ({ 
-    sidebarOpen: !state.sidebarOpen 
-  })),
   
   setTheme: (theme) => set({ theme }),
 }));

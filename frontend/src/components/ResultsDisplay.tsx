@@ -26,18 +26,21 @@ import {
   ResponsiveContainer
 } from 'recharts';
 import type { Query } from '@/types';
+// @ts-ignore
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+// @ts-ignore
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
 interface ResultsDisplayProps {
   query: Query;
+  isDark?: boolean;
 }
 
 type ViewMode = 'table' | 'bar' | 'line' | 'pie';
 
 const COLORS = ['#0ea5e9', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981'];
 
-export default function ResultsDisplay({ query }: ResultsDisplayProps) {
+export default function ResultsDisplay({ query, isDark = true }: ResultsDisplayProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [showSQL, setShowSQL] = useState(false);
   const [showInsights, setShowInsights] = useState(true);
@@ -87,11 +90,11 @@ export default function ResultsDisplay({ query }: ResultsDisplayProps) {
       <div className="card">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-4">
-            <h3 className="text-lg font-semibold text-white">
+            <h3 className="text-lg font-semibold text-slate-800 dark:text-white">
               Results ({query.result_count})
             </h3>
             {query.execution_time_ms && (
-              <div className="flex items-center gap-1 text-sm text-gray-400">
+              <div className="flex items-center gap-1 text-sm text-slate-500 dark:text-gray-400">
                 <Clock className="w-4 h-4" />
                 {query.execution_time_ms}ms
               </div>
@@ -175,7 +178,7 @@ export default function ResultsDisplay({ query }: ResultsDisplayProps) {
           animate={{ opacity: 1, height: 'auto' }}
           className="card"
         >
-          <h4 className="text-sm font-semibold text-gray-300 mb-3">Generated SQL</h4>
+          <h4 className="text-sm font-semibold text-slate-600 dark:text-gray-300 mb-3">Generated SQL</h4>
           <div className="code-block">
             <SyntaxHighlighter language="sql" style={vscDarkPlus}>
               {query.generated_sql}
@@ -183,7 +186,7 @@ export default function ResultsDisplay({ query }: ResultsDisplayProps) {
           </div>
           {query.sql_explanation && (
             <div className="mt-4 p-4 glass-effect rounded-lg">
-              <p className="text-sm text-gray-300">{query.sql_explanation}</p>
+              <p className="text-sm text-slate-600 dark:text-gray-300">{query.sql_explanation}</p>
             </div>
           )}
         </motion.div>
@@ -196,7 +199,7 @@ export default function ResultsDisplay({ query }: ResultsDisplayProps) {
           animate={{ opacity: 1, height: 'auto' }}
           className="card"
         >
-          <h4 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
+          <h4 className="text-sm font-semibold text-slate-600 dark:text-gray-300 mb-3 flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-primary-400" />
             AI Insights
           </h4>
@@ -211,9 +214,9 @@ export default function ResultsDisplay({ query }: ResultsDisplayProps) {
                                   insight.type === 'pattern' ? '#8b5cf6' : '#10b981'
                 }}
               >
-                <h5 className="font-semibold text-white mb-1">{insight.title}</h5>
-                <p className="text-sm text-gray-300">{insight.description}</p>
-                <div className="mt-2 text-xs text-gray-400">
+                <h5 className="font-semibold text-slate-800 dark:text-white mb-1">{insight.title}</h5>
+                <p className="text-sm text-slate-600 dark:text-gray-300">{insight.description}</p>
+                <div className="mt-2 text-xs text-slate-500 dark:text-gray-400">
                   Confidence: {(insight.confidence * 100).toFixed(0)}%
                 </div>
               </div>
@@ -228,11 +231,11 @@ export default function ResultsDisplay({ query }: ResultsDisplayProps) {
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="border-b border-dark-700">
+                <tr className="border-b border-slate-200 dark:border-dark-700">
                   {columns.map((col) => (
                     <th
                       key={col}
-                      className="text-left py-3 px-4 text-sm font-semibold text-gray-300"
+                      className="text-left py-3 px-4 text-sm font-semibold text-slate-600 dark:text-gray-300"
                     >
                       {col}
                     </th>
@@ -243,10 +246,10 @@ export default function ResultsDisplay({ query }: ResultsDisplayProps) {
                 {query.results.map((row, index) => (
                   <tr
                     key={index}
-                    className="border-b border-dark-800 hover:bg-white/5 transition-colors"
+                    className="border-b border-slate-100 dark:border-dark-800 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors"
                   >
                     {columns.map((col) => (
-                      <td key={col} className="py-3 px-4 text-sm text-gray-300">
+                      <td key={col} className="py-3 px-4 text-sm text-slate-600 dark:text-gray-300">
                         {JSON.stringify(row[col])}
                       </td>
                     ))}
@@ -260,13 +263,14 @@ export default function ResultsDisplay({ query }: ResultsDisplayProps) {
         {viewMode === 'bar' && (
           <ResponsiveContainer width="100%" height={400}>
             <BarChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-              <XAxis dataKey={columns[0]} stroke="#94a3b8" />
-              <YAxis stroke="#94a3b8" />
+              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#e2e8f0"} />
+              <XAxis dataKey={columns[0]} stroke={isDark ? "#94a3b8" : "#64748b"} />
+              <YAxis stroke={isDark ? "#94a3b8" : "#64748b"} />
               <Tooltip 
                 contentStyle={{ 
-                  backgroundColor: '#1e293b', 
-                  border: '1px solid #334155' 
+                  backgroundColor: isDark ? '#1e293b' : '#ffffff', 
+                  border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+                  color: isDark ? '#f8fafc' : '#1e293b'
                 }}
               />
               <Legend />
@@ -284,13 +288,14 @@ export default function ResultsDisplay({ query }: ResultsDisplayProps) {
         {viewMode === 'line' && (
           <ResponsiveContainer width="100%" height={400}>
             <RechartsLine data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-              <XAxis dataKey={columns[0]} stroke="#94a3b8" />
-              <YAxis stroke="#94a3b8" />
+              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#e2e8f0"} />
+              <XAxis dataKey={columns[0]} stroke={isDark ? "#94a3b8" : "#64748b"} />
+              <YAxis stroke={isDark ? "#94a3b8" : "#64748b"} />
               <Tooltip 
                 contentStyle={{ 
-                  backgroundColor: '#1e293b', 
-                  border: '1px solid #334155' 
+                  backgroundColor: isDark ? '#1e293b' : '#ffffff', 
+                  border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+                  color: isDark ? '#f8fafc' : '#1e293b'
                 }}
               />
               <Legend />
@@ -319,14 +324,15 @@ export default function ResultsDisplay({ query }: ResultsDisplayProps) {
                 outerRadius={120}
                 label
               >
-                {chartData.map((entry, index) => (
+                {chartData.map((_, index) => (
                   <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                 ))}
               </Pie>
               <Tooltip 
                 contentStyle={{ 
-                  backgroundColor: '#1e293b', 
-                  border: '1px solid #334155' 
+                  backgroundColor: isDark ? '#1e293b' : '#ffffff', 
+                  border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+                  color: isDark ? '#f8fafc' : '#1e293b'
                 }}
               />
               <Legend />

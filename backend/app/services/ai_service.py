@@ -65,14 +65,15 @@ class AIService:
                 conversation_context += f"{msg['role']}: {msg['content']}\n"
         
         if is_mongodb:
-            query_type = "MongoDB operation (Aggregation, Insert, Update, or Delete)"
+            query_type = "MongoDB operation (Aggregation, Insert, Update, Delete, or Drop)"
             syntax_rules = """
 1. Use MongoDB aggregation pipeline syntax as a JSON array if reading data.
-2. If the user wants to INSERT, UPDATE, or DELETE, use the following JSON wrapper format:
+2. If the user wants to INSERT, UPDATE, DELETE, or DROP, use the following JSON wrapper format:
    - Aggregation: {"collection": "coll", "pipeline": [...]}
    - Insert: {"collection": "coll", "insert": {document}}
    - Update: {"collection": "coll", "update": {$set: {...}}, "filter": {...}}
    - Delete: {"collection": "coll", "delete": true, "filter": {...}}
+   - Drop (collection/table): {"collection": "coll", "drop": true}
 3. Optimize for performance.
 """
         else:
@@ -245,16 +246,32 @@ Return as JSON array: ["type1", "type2", "type3"]
         return ["table"]
     
     def _build_schema_context(self, schema_info: Dict[str, Any]) -> str:
-        """Build a readable schema context for the AI"""
+        """Build a readable schema context for the AI including keys and relationships"""
         context = []
         
         tables = schema_info.get("tables", {})
         for table_name, table_data in tables.items():
+            # Build columns list
             columns_str = ", ".join([
-                f"{col['name']} ({col['type']})"
+                f"{col['name']} ({col['type']}{' - PK' if col.get('primary_key') else ''})"
                 for col in table_data.get("columns", [])
             ])
-            context.append(f"Table: {table_name}\nColumns: {columns_str}\n")
+            
+            table_desc = f"Table: {table_name}\nColumns: {columns_str}"
+            
+            # Add Primary Key summary if available and not explicitly tagged beside column name
+            pk = table_data.get("primary_key", {})
+            if pk and pk.get("constrained_columns"):
+                table_desc += f"\nPrimary Key: {', '.join(pk['constrained_columns'])}"
+            
+            # Add Foreign keys
+            fks = table_data.get("foreign_keys", [])
+            if fks:
+                table_desc += "\nForeign Keys:"
+                for fk in fks:
+                    table_desc += f"\n  - {', '.join(fk['constrained_columns'])} -> {fk['referred_table']}({', '.join(fk['referred_columns'])})"
+            
+            context.append(table_desc + "\n")
         
         return "\n".join(context)
     

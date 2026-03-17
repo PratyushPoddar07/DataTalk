@@ -3,8 +3,7 @@ import type {
   Query,
   DatabaseConnection,
   SchemaInfo,
-  QueryRequest,
-  ApiResponse
+  QueryRequest
 } from '@/types';
 
 class ApiService {
@@ -92,6 +91,16 @@ class ApiService {
     const response = await this.api.get<SchemaInfo>(
       `/databases/${databaseId}/schema`
     );
+    return response.data;
+  }
+
+  deleteDatabase = async (databaseId: number): Promise<{ message: string }> => {
+    const response = await this.api.delete(`/databases/${databaseId}`);
+    return response.data;
+  }
+
+  deleteTable = async (databaseId: number, tableName: string): Promise<{ message: string }> => {
+    const response = await this.api.delete(`/databases/${databaseId}/tables/${tableName}`);
     return response.data;
   }
 

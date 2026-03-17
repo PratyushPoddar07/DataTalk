@@ -116,6 +116,11 @@ class QueryExecutor:
                             res = self.mongo_db[coll_name].delete_many(filter_query)
                             results = [{"deleted_count": res.deleted_count, "success": True}]
                         
+                        # Handle Drop (Collection)
+                        elif "drop" in pipeline_data:
+                            self.mongo_db.drop_collection(coll_name)
+                            results = [{"dropped_collection": coll_name, "success": True}]
+                        
                         else:
                             return {
                                 "status": QueryStatus.ERROR,

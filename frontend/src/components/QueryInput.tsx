@@ -5,15 +5,18 @@ import { motion } from 'framer-motion';
 interface QueryInputProps {
   onSubmit: (query: string) => void;
   isLoading: boolean;
+  query: string;
+  setQuery: (query: string) => void;
   placeholder?: string;
 }
 
 export default function QueryInput({ 
   onSubmit, 
   isLoading,
+  query,
+  setQuery,
   placeholder = "Ask your data anything..."
 }: QueryInputProps) {
-  const [query, setQuery] = useState('');
   const [isListening, setIsListening] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -95,7 +98,7 @@ export default function QueryInput({
                 }
               }}
               placeholder={placeholder}
-              className="w-full bg-transparent text-white placeholder-gray-400 resize-none focus:outline-none min-h-[60px] max-h-[200px]"
+              className="w-full bg-transparent text-slate-800 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 resize-none focus:outline-none min-h-[60px] max-h-[200px]"
               rows={1}
               disabled={isLoading}
             />
@@ -168,7 +171,7 @@ export default function QueryInput({
             key={index}
             type="button"
             onClick={() => setQuery(suggestion)}
-            className="text-xs glass-effect px-3 py-1.5 rounded-full text-gray-300 hover:bg-white/10 transition-all"
+            className="text-xs glass-effect px-3 py-1.5 rounded-full text-slate-600 dark:text-gray-300 hover:bg-slate-100 dark:hover:bg-white/10 transition-all"
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             disabled={isLoading}
