@@ -57,3 +57,7 @@ chroma_db/
 .cache/
 tmp/
 temp/
+
+# Vercel
+.vercel/
+api/__pycache__/

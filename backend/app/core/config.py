@@ -1,6 +1,7 @@
 from pydantic_settings import BaseSettings
-from typing import List
+from typing import List, Optional
 from functools import lru_cache
+import os
 
 
 class Settings(BaseSettings):
@@ -9,39 +10,39 @@ class Settings(BaseSettings):
     # Application
     APP_NAME: str = "QueryMind AI"
     APP_VERSION: str = "1.0.0"
-    DEBUG: bool = True
+    DEBUG: bool = False
     API_V1_PREFIX: str = "/api/v1"
     
     # Server
     HOST: str = "0.0.0.0"
     PORT: int = 8000
     
-    # Database
-    DATABASE_URL: str
+    # Database — defaults to SQLite so the app can boot without PostgreSQL
+    DATABASE_URL: str = "sqlite:///querymind.db"
     MONGODB_URL: str = "mongodb://localhost:27017"
     REDIS_URL: str = "redis://localhost:6379"
     
-    # AI Services
-    ANTHROPIC_API_KEY: str
+    # AI Services — must be set via Vercel Environment Variables in production
+    ANTHROPIC_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
     
     # Vector Database
     CHROMA_PERSIST_DIR: str = "./chroma_db"
     
-    # Security
-    SECRET_KEY: str
+    # Security — must be set via Vercel Environment Variables in production
+    SECRET_KEY: str = "change-me-in-production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     
-    # CORS
-    ALLOWED_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
+    # CORS — include common Vercel preview/production domains
+    ALLOWED_ORIGINS: str = "http://localhost:5173,http://localhost:3000,https://*.vercel.app"
     
-    # Celery
+    # Celery (optional — not available in serverless)
     CELERY_BROKER_URL: str = "redis://localhost:6379/0"
     CELERY_RESULT_BACKEND: str = "redis://localhost:6379/0"
     
     # Monitoring
-    ENABLE_METRICS: bool = True
+    ENABLE_METRICS: bool = False
     
     # SQL Generation
     MAX_QUERY_COMPLEXITY: int = 10
@@ -53,6 +54,7 @@ class Settings(BaseSettings):
     
     class Config:
         env_file = ".env"
+        env_file_encoding = "utf-8"
         case_sensitive = True
 
 
