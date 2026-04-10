@@ -8,6 +8,7 @@ class DatabaseType(str, Enum):
     POSTGRESQL = "postgresql"
     MYSQL = "mysql"
     MONGODB = "mongodb"
+    MONGODB_ATLAS = "mongodb_atlas"
     SQLITE = "sqlite"
 
 

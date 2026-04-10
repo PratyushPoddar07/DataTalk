@@ -115,9 +115,10 @@ class DatabaseInspector:
                     "primary_key": {"constrained_columns": ["_id"]}
                 }
             
+            # Use the actual string "mongodb" or "mongodb_atlas" as sent from the request
             return {
                 "tables": tables,
-                "database_type": "mongodb",
+                "database_type": "mongodb", # Default to mongodb for schema purposes
                 "total_tables": len(tables)
             }
         

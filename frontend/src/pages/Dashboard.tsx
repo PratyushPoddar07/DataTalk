@@ -811,7 +811,8 @@ export default function Dashboard() {
                         >
                           <option value="postgresql" className="bg-[#1a1a1f]">PostgreSQL</option>
                           <option value="mysql" className="bg-[#1a1a1f]">MySQL</option>
-                          <option value="mongodb" className="bg-[#1a1a1f]">MongoDB</option>
+                          <option value="mongodb" className="bg-[#1a1a1f]">MongoDB (Local)</option>
+                          <option value="mongodb_atlas" className="bg-[#1a1a1f]">MongoDB Atlas</option>
                           <option value="sqlite" className="bg-[#1a1a1f]">SQLite</option>
                         </select>
                       </div>
@@ -822,7 +823,15 @@ export default function Dashboard() {
                       <div className="relative">
                         <input
                           type="password"
-                          placeholder="postgresql://user:pass@host:port/db"
+                          placeholder={
+                            newDb.db_type === 'mongodb_atlas' 
+                              ? "mongodb+srv://user:pass@cluster.mongodb.net/dbname"
+                              : newDb.db_type === 'mongodb'
+                              ? "mongodb://localhost:27017/dbname"
+                              : newDb.db_type === 'sqlite'
+                              ? "sqlite:///path/to/database.db"
+                              : "postgresql://user:pass@host:port/db"
+                          }
                           value={newDb.connection_string}
                           onChange={(e) => setNewDb({ ...newDb, connection_string: e.target.value })}
                           className="w-full bg-white/5 border border-white/10 rounded-xl pl-4 pr-12 py-3 text-white focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all placeholder:text-gray-600"

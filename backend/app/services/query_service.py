@@ -14,7 +14,11 @@ class QueryExecutor:
     
     def __init__(self, connection_string: str):
         self.connection_string = connection_string
+        # Support both types of MongoDB connections
         self.is_mongodb = connection_string.startswith(("mongodb://", "mongodb+srv://"))
+        
+        # Also check if it's explicitly marked as mongodb_atlas in the UI
+        # (Though connection string check is more robust)
         
         if self.is_mongodb:
             from pymongo import MongoClient

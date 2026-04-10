@@ -268,7 +268,7 @@ async def delete_database_table(
         )
     
     try:
-        if db_conn.db_type.lower() == "mongodb":
+        if db_conn.db_type.lower() in ["mongodb", "mongodb_atlas"]:
             from pymongo import MongoClient
             client = MongoClient(db_conn.connection_string)
             from urllib.parse import urlparse
