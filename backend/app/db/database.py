@@ -32,6 +32,9 @@ try:
     redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
     redis_client.ping()
     logger.info("Connected to Redis")
+except ImportError:
+    redis_client = None
+    logger.warning("redis package not installed. Caching disabled.")
 except Exception as e:
     redis_client = None
     logger.warning(f"Redis unavailable ({e}). Caching disabled.")

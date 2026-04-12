@@ -56,6 +56,8 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = True
+        # Don't fail if .env doesn't exist (Vercel uses dashboard env vars)
+        extra = "ignore"
 
 
 @lru_cache()
