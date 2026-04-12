@@ -6,6 +6,7 @@
   "installCommand": "cd frontend && npm install",
   "experimentalServices": {
     "frontend": {
+      "framework": "vite",
       "routePrefix": "/"
     },
     "backend": {
