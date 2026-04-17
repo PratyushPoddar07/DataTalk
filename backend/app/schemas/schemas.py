@@ -176,6 +176,15 @@ class SQLGenerationResponse(BaseModel):
     complexity_score: int
 
 
+class SchemaAnalysisResponse(BaseModel):
+    summary: str
+    core_entities: List[str]
+    relationship_overview: str
+    normalization_tips: List[str]
+    best_practices: List[str]
+    complexity_rating: int # 1-10
+
+
 # Visualization
 class VisualizationSuggestion(BaseModel):
     chart_type: str  # bar, line, pie, scatter, 3d_scatter, heatmap

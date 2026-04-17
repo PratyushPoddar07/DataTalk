@@ -99,6 +99,13 @@ class ApiService {
     return response.data;
   }
 
+  getSchemaAnalysis = async (databaseId: number): Promise<any> => {
+    const response = await this.api.get(
+      `/databases/${databaseId}/analysis`
+    );
+    return response.data;
+  }
+
   deleteTable = async (databaseId: number, tableName: string): Promise<{ message: string }> => {
     const response = await this.api.delete(`/databases/${databaseId}/tables/${tableName}`);
     return response.data;

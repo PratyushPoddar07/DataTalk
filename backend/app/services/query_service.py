@@ -7,12 +7,17 @@ from app.schemas.schemas import QueryStatus
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import re
+import certifi
 
 
 class QueryExecutor:
     """Execute SQL queries safely with timeout and validation"""
     
     def __init__(self, connection_string: str):
+        # SQLAlchemy 1.4+ requires postgresql:// instead of postgres://
+        if connection_string.startswith("postgres://"):
+            connection_string = connection_string.replace("postgres://", "postgresql://", 1)
+            
         self.connection_string = connection_string
         # Support both types of MongoDB connections
         self.is_mongodb = connection_string.startswith(("mongodb://", "mongodb+srv://"))
@@ -23,10 +28,19 @@ class QueryExecutor:
         if self.is_mongodb:
             from pymongo import MongoClient
             from urllib.parse import urlparse
-            self.mongo_client = MongoClient(
-                connection_string, 
-                serverSelectionTimeoutMS=settings.QUERY_TIMEOUT_SECONDS * 1000
-            )
+            # Explicitly parse and normalize Atlas connection strings
+            options = {
+                "serverSelectionTimeoutMS": 5000,
+                "connectTimeoutMS": 5000,
+                "socketTimeoutMS": 5000,
+                "tls": True,
+                "tlsCAFile": certifi.where(),
+                "tlsAllowInvalidCertificates": True,
+                "retryWrites": True,
+                "authSource": "admin" # Most common Atlas auth source
+            }
+            
+            self.mongo_client = MongoClient(connection_string, **options)
             # Correctly handle database name from path
             self.mongo_db_name = settings.MONGODB_URL.split('/')[-1].split('?')[0] if '?' in settings.MONGODB_URL else settings.MONGODB_URL.split('/')[-1]
             if not self.mongo_db_name or self.mongo_db_name == "atlas-sql-6989f8b63bb4d1f488aac3ca":
@@ -103,9 +117,13 @@ class QueryExecutor:
                         
                         # Handle Insert
                         elif "insert" in pipeline_data:
-                            doc = pipeline_data["insert"]
-                            res = self.mongo_db[coll_name].insert_one(doc)
-                            results = [{"inserted_id": str(res.inserted_id), "success": True}]
+                            data_to_insert = pipeline_data["insert"]
+                            if isinstance(data_to_insert, list):
+                                res = self.mongo_db[coll_name].insert_many(data_to_insert)
+                                results = [{"inserted_count": len(res.inserted_ids), "success": True}]
+                            else:
+                                res = self.mongo_db[coll_name].insert_one(data_to_insert)
+                                results = [{"inserted_id": str(res.inserted_id), "success": True}]
                         
                         # Handle Update
                         elif "update" in pipeline_data:
@@ -207,18 +225,23 @@ class QueryExecutor:
             # Transaction for non-SELECT queries
             trans = conn.begin()
             try:
-                result = conn.execute(text(sql))
+                # Split multiple statements separated by semicolon
+                statements = [s.strip() for s in sql.split(";") if s.strip()]
                 
-                # Fetch results if it returns rows
                 rows = []
-                if result.returns_rows:
-                    for i, row in enumerate(result):
-                        if i >= max_rows:
-                            break
-                        rows.append(dict(row._mapping))
-                else:
-                    # For DML, return affected row count
-                    rows = [{"rowcount": result.rowcount, "success": True}]
+                for idx, statement in enumerate(statements):
+                    result = conn.execute(text(statement))
+                    
+                    # Only fetch results for the last statement, and only if it returns rows
+                    if idx == len(statements) - 1:
+                        if result.returns_rows:
+                            for i, row in enumerate(result):
+                                if i >= max_rows:
+                                    break
+                                rows.append(dict(row._mapping))
+                        else:
+                            # For DML, return affected row count
+                            rows = [{"rowcount": result.rowcount, "success": True, "message": f"Successfully executed {len(statements)} statements."}]
                 
                 trans.commit()
                 return rows
@@ -253,7 +276,12 @@ class QueryExecutor:
     async def test_connection(self) -> bool:
         """Test database connection. Raises exception if failed."""
         if self.is_mongodb:
-            self.mongo_client.admin.command('ping')
+            # Run blocking ping in thread pool
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                self.executor,
+                lambda: self.mongo_client.admin.command('ping')
+            )
             return True
         
         loop = asyncio.get_event_loop()

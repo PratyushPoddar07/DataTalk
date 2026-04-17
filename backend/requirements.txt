@@ -44,3 +44,6 @@ pytest-cov==4.1.0
 
 # Monitoring
 prometheus-client==0.19.0
+
+pymongo[srv]
+certifi

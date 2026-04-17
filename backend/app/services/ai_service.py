@@ -52,7 +52,7 @@ class AIService:
         """Generate SQL or MongoDB query from natural language query"""
         
         db_type = schema_info.get("database_type", "postgresql").lower()
-        is_mongodb = db_type == "mongodb"
+        is_mongodb = "mongodb" in db_type.lower()
         
         # Build context from schema
         schema_context = self._build_schema_context(schema_info)
@@ -81,9 +81,10 @@ class AIService:
             syntax_rules = """
 1. Use proper SQL syntax for the database type.
 2. Support full database control: SELECT, INSERT, UPDATE, DELETE, CREATE TABLE, ALTER, DROP, etc.
-3. Include appropriate WHERE clauses, JOINs, and aggregations.
-4. Optimize for performance.
-5. Return ONLY valid SQL.
+3. Include appropriate WHERE clauses, JOINs, and aggregations for analytical queries.
+4. If the user provides raw data (like CSV, Markdown tables, or lists) and asks to add/insert it, you MUST generate a CREATE TABLE statement (if the table doesn't map to an existing one) followed by INSERT statements to insert all the provided data rows. Ensure multiple statements are properly separated by semicolons.
+5. Optimize for performance.
+6. Return ONLY valid SQL.
 """
 
         prompt = f"""You are an expert database administrator and query generator. 
@@ -113,15 +114,20 @@ Respond in JSON format:
         content = await self._call_ai(prompt, max_tokens=2000)
         
         # Extract JSON from response
-        json_match = re.search(r'\{.*\}', content, re.DOTALL)
-        if json_match:
-            result = json.loads(json_match.group())
+        # First, try to find a JSON object { ... }
+        object_match = re.search(r'\{.*\}', content, re.DOTALL)
+        if object_match:
+            try:
+                result = json.loads(object_match.group())
+            except json.JSONDecodeError:
+                # If nested object parsing failed, try to get just the first matching pair
+                result = self._fallback_parse_json(content)
         else:
             # Fallback parsing
             result = {
-                "sql": content.strip(),
+                "sql": content.strip().split(';')[0] + ';',
                 "explanation": "Query generated",
-                "confidence": 0.8,
+                "confidence": 0.5,
                 "tables_used": [],
                 "complexity_score": 5
             }
@@ -157,10 +163,9 @@ User's Original Goal: {original_question}
 Data Summary:
 {json.dumps(data_summary, indent=2, default=str)}
 
-Provide insights in JSON format as an array. 
-The first item MUST be a 'summary' type that provides a high-level plain language explanation of the results.
-
-[
+Provide insights in JSON format as an object with an "insights" key containing the array:
+{{
+    "insights": [
     {{
         "type": "summary|trend|anomaly|pattern",
         "title": "Clear Headline",
@@ -168,6 +173,7 @@ The first item MUST be a 'summary' type that provides a high-level plain languag
         "confidence": 0.0-1.0
     }}
 ]
+}}
 
 Focus on:
 - Interpreting the numbers (e.g., "The average sales are higher than last month")
@@ -177,13 +183,43 @@ Focus on:
         
         content = await self._call_ai(prompt, max_tokens=1500)
         
-        # Extract JSON array
-        json_match = re.search(r'\[.*\]', content, re.DOTALL)
-        if json_match:
-            insights_data = json.loads(json_match.group())
-            return [DataInsight(**insight) for insight in insights_data]
+        # Extract JSON array or object
+        object_match = re.search(r'\{.*\}', content, re.DOTALL)
+        array_match = re.search(r'\[.*\]', content, re.DOTALL)
         
-        return []
+        try:
+            if object_match:
+                data = json.loads(object_match.group())
+                insights_data = data.get("insights", data) if isinstance(data, dict) else data
+            elif array_match:
+                insights_data = json.loads(array_match.group())
+            else:
+                return []
+                
+            if isinstance(insights_data, list):
+                return [DataInsight(**insight) for insight in insights_data]
+            return []
+        except Exception as e:
+            print(f"Error parsing insights JSON: {e}")
+            return []
+            
+    def _fallback_parse_json(self, content: str) -> Dict[str, Any]:
+        """Simple fallback to find the first JSON-like block if re.DOTALL is too greedy"""
+        try:
+            # Attempt to find the first balance of braces
+            stack = 0
+            start = -1
+            for i, char in enumerate(content):
+                if char == '{':
+                    if stack == 0: start = i
+                    stack += 1
+                elif char == '}':
+                    stack -= 1
+                    if stack == 0 and start != -1:
+                        return json.loads(content[start:i+1])
+        except:
+            pass
+        return {}
     
     async def explain_sql(self, sql: str, schema_info: Dict[str, Any]) -> str:
         """Explain SQL query in plain language"""
@@ -294,6 +330,51 @@ Provide optimization suggestions for:
         
         content = await self._call_ai(prompt, max_tokens=1000)
         return content
+
+    async def analyze_schema(self, schema_info: Dict[str, Any]) -> Dict[str, Any]:
+        """Analyze the entire database schema and provide architectural insights"""
+        
+        schema_context = self._build_schema_context(schema_info)
+        db_type = schema_info.get("database_type", "postgresql")
+        total_tables = schema_info.get("total_tables", 0)
+        
+        prompt = f"""You are a senior Database Architect. Analyze the following database schema and provide a comprehensive architectural review.
+
+Database Type: {db_type}
+Total Tables: {total_tables}
+
+Schema Context:
+{schema_context}
+
+Respond in JSON format with the following structure:
+{{
+    "summary": "A 2-3 sentence overview of what this database is designed for.",
+    "core_entities": ["List of the 3-5 most important tables"],
+    "relationship_overview": "A brief explanation of how the main tables connect.",
+    "normalization_tips": ["List of suggestions to improve data structure"],
+    "best_practices": ["List of database-specific best practices applicable here"],
+    "complexity_rating": 1-10
+}}
+"""
+        
+        content = await self._call_ai(prompt, max_tokens=1500)
+        
+        # Extract JSON
+        object_match = re.search(r'\{.*\}', content, re.DOTALL)
+        if object_match:
+            try:
+                return json.loads(object_match.group())
+            except:
+                pass
+        
+        return {
+            "summary": "Database schema analysis complete.",
+            "core_entities": list(schema_info.get("tables", {}).keys())[:3],
+            "relationship_overview": "Table relationships identified based on foreign keys.",
+            "normalization_tips": ["Ensure indexes are present on all foreign keys."],
+            "best_practices": ["Maintain consistent naming conventions."],
+            "complexity_rating": 5
+        }
 
 
 # Singleton instance

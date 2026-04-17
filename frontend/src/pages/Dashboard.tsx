@@ -8,6 +8,7 @@ import Background3D from '@/components/Background3D';
 import QueryInput from '@/components/QueryInput';
 import ResultsDisplay from '@/components/ResultsDisplay';
 import SchemaVisualizer3D from '@/components/SchemaVisualizer3D';
+import SchemaReport from '@/components/SchemaReport';
 import { apiService } from '@/services/api';
 import { useAppStore } from '@/store';
 import type { DatabaseConnection, TableInfo } from '@/types';
@@ -15,9 +16,8 @@ import type { DatabaseConnection, TableInfo } from '@/types';
 const DB_TYPES = [
   { key: 'all', label: 'All', icon: '🗄️' },
   { key: 'postgresql', label: 'PostgreSQL', icon: '🐘' },
-  { key: 'mongodb', label: 'MongoDB', icon: '🍃' },
+  { key: 'mongodb_atlas', label: 'MongoDB Atlas', icon: '☁️' },
   { key: 'mysql', label: 'MySQL', icon: '🐬' },
-  { key: 'sqlite', label: 'SQLite', icon: '📁' },
 ] as const;
 
 type DbTypeFilter = typeof DB_TYPES[number]['key'];
@@ -34,12 +34,16 @@ export default function Dashboard() {
   const [isHistoryOpen, setIsHistoryOpen] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [isDarkMode, setIsDarkMode] = useState(true);
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    const saved = localStorage.getItem('theme');
+    return saved ? saved === 'dark' : true;
+  });
+  const [visualizerMode, setVisualizerMode] = useState<'3d' | 'report'>('3d');
   const [currentQuery, setCurrentQuery] = useState('');
 
   const [newDb, setNewDb] = useState({
     name: '',
-    db_type: 'postgresql' as const,
+    db_type: 'postgresql' as 'postgresql' | 'mysql' | 'mongodb' | 'mongodb_atlas' | 'sqlite',
     connection_string: ''
   });
 
@@ -78,6 +82,13 @@ export default function Dashboard() {
     enabled: !!selectedDatabase,
   });
 
+  // Fetch AI schema analysis
+  const { data: schemaAnalysis, isLoading: isLoadingAnalysis } = useQuery({
+    queryKey: ['schema-analysis', selectedDatabase?.id],
+    queryFn: () => apiService.getSchemaAnalysis(selectedDatabase!.id),
+    enabled: !!selectedDatabase && showSchema && visualizerMode === 'report',
+  });
+
   // Execute query mutation
   const executeMutation = useMutation({
     mutationFn: (query: string) => apiService.executeQuery({
@@ -89,6 +100,7 @@ export default function Dashboard() {
     onSuccess: (data) => {
       addQuery(data);
       queryClient.invalidateQueries({ queryKey: ['query-history'] });
+      queryClient.invalidateQueries({ queryKey: ['schema', selectedDatabase?.id] });
       toast.success('Query executed successfully!');
     },
     onError: (error: any) => {
@@ -153,12 +165,27 @@ export default function Dashboard() {
     }
   });
 
-  // Auto-select first database
+  // Auto-select first database in filtered view
   useEffect(() => {
-    if (databases && databases.length > 0 && !selectedDatabase) {
+    const filteredDbs = databases?.filter(db => selectedDbType === 'all' || db.db_type === selectedDbType) || [];
+    if (filteredDbs.length > 0) {
+       // If current selection is not in the filtered view, pick the first available one
+       const isSelectedInFiltered = filteredDbs.some(db => db.id === selectedDatabase?.id);
+       if (!isSelectedInFiltered && !selectedDatabase) {
+         setSelectedDatabase(filteredDbs[0]);
+       }
+    } else {
+       // No databases in this view, clear selection
+       setSelectedDatabase(null);
+    }
+  }, [databases, selectedDbType, selectedDatabase, setSelectedDatabase]);
+
+  // Initial auto-select first database
+  useEffect(() => {
+    if (databases && databases.length > 0 && !selectedDatabase && selectedDbType === 'all') {
       setSelectedDatabase(databases[0]);
     }
-  }, [databases, selectedDatabase, setSelectedDatabase]);
+  }, [databases, selectedDatabase, setSelectedDatabase, selectedDbType]);
 
   // Check scroll state
   const updateScrollState = () => {
@@ -241,6 +268,14 @@ export default function Dashboard() {
     if (deleteTableConfirmName) {
       deleteTableMutation.mutate(deleteTableConfirmName);
     }
+  };
+
+  const handleTableSelect = (table: TableInfo) => {
+    setSelectedTable(table);
+    // Automatically trigger a query to show the data
+    const query = `Show me all data from ${table.name}`;
+    setCurrentQuery(query);
+    handleQuerySubmit(query);
   };
 
   const latestQuery = queries[0];
@@ -446,6 +481,10 @@ export default function Dashboard() {
                     onClick={() => {
                       setSelectedDbType(type.key);
                       setSelectedTable(null);
+                      // Clear selection when switching to a category that might not have the DB
+                      if (type.key !== 'all' && selectedDatabase?.db_type !== type.key) {
+                        setSelectedDatabase(null);
+                      }
                     }}
                     className={`db-type-tab shrink-0 ${
                       selectedDbType === type.key ? 'db-type-tab-active' : ''
@@ -609,7 +648,7 @@ export default function Dashboard() {
                       {Object.keys(schema.tables).map((tableName) => (
                         <div
                           key={tableName}
-                          onClick={() => setSelectedTable(schema.tables[tableName])}
+                          onClick={() => handleTableSelect(schema.tables[tableName])}
                           className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 border group/table ${selectedTable?.name === tableName
                             ? 'bg-primary-600/20 text-primary-300 border-primary-500/40'
                             : 'bg-white/5 text-gray-400 border-transparent hover:bg-white/10 hover:text-gray-200'
@@ -645,14 +684,47 @@ export default function Dashboard() {
                   initial={{ opacity: 0, height: 0, y: -20 }}
                   animate={{ opacity: 1, height: 600, y: 0 }}
                   exit={{ opacity: 0, height: 0, y: -20 }}
-                  className="card h-[600px] relative overflow-hidden group shadow-2xl shadow-primary-900/10"
+                  className="card h-[600px] relative overflow-hidden group shadow-2xl shadow-primary-900/10 flex flex-col"
                 >
+                  {/* View Toggle Bar */}
+                  <div className="flex items-center gap-1 p-1 bg-black/20 rounded-lg absolute top-4 left-4 z-20 border border-white/5 backdrop-blur-md">
+                    <button
+                      onClick={() => setVisualizerMode('3d')}
+                      className={`px-3 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all ${
+                        visualizerMode === '3d' 
+                        ? 'bg-primary-600 text-white shadow-lg shadow-primary-600/30' 
+                        : 'text-gray-500 hover:text-gray-300'
+                      }`}
+                    >
+                      3D Graph
+                    </button>
+                    <button
+                      onClick={() => setVisualizerMode('report')}
+                      className={`px-3 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all ${
+                        visualizerMode === 'report' 
+                        ? 'bg-primary-600 text-white shadow-lg shadow-primary-600/30' 
+                        : 'text-gray-500 hover:text-gray-300'
+                      }`}
+                    >
+                      Report View
+                    </button>
+                  </div>
+
                   <div className="absolute inset-0 bg-gradient-to-b from-primary-500/5 to-transparent pointer-events-none" />
-                  <SchemaVisualizer3D
-                    schema={schema}
-                    onTableSelect={setSelectedTable}
-                    selectedTable={selectedTable}
-                  />
+                  
+                  {visualizerMode === '3d' ? (
+                    <SchemaVisualizer3D
+                      schema={schema}
+                      onTableSelect={handleTableSelect}
+                      selectedTable={selectedTable}
+                    />
+                  ) : (
+                    <SchemaReport 
+                      schema={schema} 
+                      analysis={schemaAnalysis}
+                      isLoadingAnalysis={isLoadingAnalysis}
+                    />
+                  )}
                 </motion.div>
               )}
             </AnimatePresence>
@@ -811,9 +883,7 @@ export default function Dashboard() {
                         >
                           <option value="postgresql" className="bg-[#1a1a1f]">PostgreSQL</option>
                           <option value="mysql" className="bg-[#1a1a1f]">MySQL</option>
-                          <option value="mongodb" className="bg-[#1a1a1f]">MongoDB (Local)</option>
                           <option value="mongodb_atlas" className="bg-[#1a1a1f]">MongoDB Atlas</option>
-                          <option value="sqlite" className="bg-[#1a1a1f]">SQLite</option>
                         </select>
                       </div>
                     </div>
@@ -824,13 +894,11 @@ export default function Dashboard() {
                         <input
                           type="password"
                           placeholder={
-                            newDb.db_type === 'mongodb_atlas' 
+                            newDb.db_type === 'mongodb_atlas'
                               ? "mongodb+srv://user:pass@cluster.mongodb.net/dbname"
-                              : newDb.db_type === 'mongodb'
-                              ? "mongodb://localhost:27017/dbname"
-                              : newDb.db_type === 'sqlite'
-                              ? "sqlite:///path/to/database.db"
-                              : "postgresql://user:pass@host:port/db"
+                              : newDb.db_type === 'postgresql'
+                              ? "postgresql://user:pass@host:port/db"
+                              : "mysql://user:pass@host:port/db"
                           }
                           value={newDb.connection_string}
                           onChange={(e) => setNewDb({ ...newDb, connection_string: e.target.value })}

@@ -6,7 +6,7 @@ from app.models.models import Query, DatabaseConnection, User
 from app.schemas.schemas import (
     QueryRequest, QueryResponse, QueryStatus,
     DatabaseConnectionCreate, DatabaseConnectionResponse,
-    SchemaInfo, InsightsResponse
+    SchemaInfo, InsightsResponse, SchemaAnalysisResponse
 )
 from app.services.ai_service import ai_service
 from app.services.query_service import QueryExecutor, QueryValidator
@@ -140,6 +140,17 @@ async def execute_natural_language_query(
             )
         except Exception as e:
             logger.error(f"Failed to generate insights: {e}")
+            # Provide a basic manual insight for DML operations
+            if execution_result.get("results") and "rowcount" in str(execution_result["results"][0]):
+                insights = {
+                    "insights": [{
+                        "type": "summary",
+                        "title": "Operation Successful",
+                        "description": "The command was executed successfully by the database engine.",
+                        "confidence": 1.0
+                    }],
+                    "count": 1
+                }
     
     # Get SQL explanation if requested
     sql_explanation = None
@@ -281,6 +292,7 @@ async def delete_database_table(
             engine = create_engine(db_conn.connection_string)
             with engine.connect() as conn:
                 conn.execute(text(f"DROP TABLE {table_name}"))
+                conn.commit()
         
         # Optionally invalidate schema_cache
         db_conn.schema_cache = None
@@ -334,57 +346,79 @@ async def create_database_connection(
 ):
     """Create a new database connection"""
     
-    # Test connection
-    logger.info(f"DEBUG: Attempting to connect to: {connection.connection_string}")
     try:
-        executor = QueryExecutor(connection.connection_string)
-        is_connected = await executor.test_connection()
-        logger.info(f"DEBUG: Connection test result: {is_connected}")
-        
-        if not is_connected:
+        # Test connection before saving
+        logger.info(f"Attempting to test connection for {connection.name} with URI: {connection.connection_string[:20]}...")
+        try:
+            executor = QueryExecutor(connection.connection_string)
+            await executor.test_connection()
+            executor.close()
+            logger.info(f"Connection test successful for {connection.name}")
+        except Exception as e:
+            logger.exception(f"Connection test failed for {connection.name}: {e}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Failed to connect to database"
+                detail=f"Invalid connection: {str(e)}"
             )
         
-        executor.close()
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid connection: {str(e)}"
-        )
-    
-    # Create database connection record
-    db_conn = DatabaseConnection(
-        user_id=1,  # TODO: Get from authenticated user
-        name=connection.name,
-        db_type=connection.db_type.value,
-        connection_string=connection.connection_string,
-        is_active=True
-    )
-    
-    db.add(db_conn)
-    db.commit()
-    db.refresh(db_conn)
-    
-    # Cache schema
-    try:
-        inspector = DatabaseInspector(connection.connection_string)
-        schema_info = inspector.get_schema_info()
+        # Ensure a default user exists (for dev/demo mode without auth)
+        logger.info("Ensuring default user exists...")
+        default_user = db.query(User).filter(User.id == 1).first()
+        if not default_user:
+            default_user = User(
+                id=1,
+                email="admin@querymind.ai",
+                username="admin",
+                hashed_password="$2b$12$dummyhashforadminpasswordbypassxxxxx", # Dummy hash to bypass bcrypt library python 3.12 bug
+                is_active=True,
+            )
+            db.add(default_user)
+            db.commit()
+            logger.info("Created default admin user for dev mode")
         
-        db_conn.schema_cache = schema_info
-        db_conn.last_sync = datetime.utcnow()
-        db.commit()
-    except Exception as e:
-        # We still created the connection, but schema sync failed
-        db_conn.last_sync = None
-        db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Connection saved, but failed to sync schema: {str(e)}"
+        # Create database connection record
+        logger.info(f"Saving connection record for {connection.name}...")
+        db_conn = DatabaseConnection(
+            user_id=1,
+            name=connection.name,
+            db_type=connection.db_type.value,
+            connection_string=connection.connection_string,
+            is_active=True
         )
-    
-    return db_conn
+        
+        db.add(db_conn)
+        db.commit()
+        db.refresh(db_conn)
+        logger.info(f"Database record saved with ID: {db_conn.id}")
+        
+        # Cache schema
+        logger.info("Starting schema sync...")
+        try:
+            inspector = DatabaseInspector(connection.connection_string)
+            schema_info = inspector.get_schema_info()
+            
+            db_conn.schema_cache = schema_info
+            db_conn.last_sync = datetime.utcnow()
+            db.commit()
+            logger.info("Schema sync completed successfully")
+        except Exception as e:
+            logger.exception(f"Schema sync failed for {connection.name}: {e}")
+            # We still created the connection, but schema sync failed
+            db_conn.last_sync = None
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Connection saved, but failed to sync schema: {str(e)}"
+            )
+        
+        return db_conn
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"FATAL UNHANDLED ERROR in create_database_connection: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
 
 
 @router.get("/databases", response_model=List[DatabaseConnectionResponse])
@@ -434,3 +468,80 @@ async def delete_database_connection(
             detail=f"Failed to delete database: {str(e)}"
         )
 
+@router.post("/databases/{database_id}/seed")
+async def seed_database_tutorial(
+    database_id: int,
+    db: Session = Depends(get_db)
+):
+    """Debug endpoint to seed tutorial data using the app's own connection environment"""
+    db_conn = db.query(DatabaseConnection).filter(DatabaseConnection.id == database_id).first()
+    if not db_conn:
+        raise HTTPException(status_code=404, detail="Database connection not found")
+        
+    STUDENTS_DATA = [
+        {"RollNo": 1, "Name": "John", "Age": 20, "Grade": "A"},
+        {"RollNo": 2, "Name": "Alice", "Age": 21, "Grade": "B"},
+        {"RollNo": 3, "Name": "Bob", "Age": 19, "Grade": "A"}
+    ]
+    
+    try:
+        if db_conn.db_type.lower() in ["mongodb", "mongodb_atlas"] or "mongodb" in db_conn.connection_string.lower():
+            from pymongo import MongoClient
+            client = MongoClient(db_conn.connection_string, serverSelectionTimeoutMS=5000)
+            from urllib.parse import urlparse
+            parsed = urlparse(db_conn.connection_string)
+            mongo_db_name = parsed.path.lstrip('/') or "querymind_tutorial"
+            if '?' in mongo_db_name: mongo_db_name = mongo_db_name.split('?')[0]
+            mongo_db = client.get_database(mongo_db_name)
+            
+            # Seed
+            mongo_db.students.insert_many(STUDENTS_DATA)
+            client.close()
+            return {"message": f"Seeded {len(STUDENTS_DATA)} documents into MongoDB {mongo_db_name}.students"}
+        else:
+            # SQL Seeding
+            from sqlalchemy import create_engine, text
+            engine = create_engine(db_conn.connection_string)
+            with engine.connect() as conn:
+                conn.execute(text("CREATE TABLE IF NOT EXISTS Students (RollNo INT PRIMARY KEY, Name VARCHAR(255), Age INT, Grade VARCHAR(10))"))
+                for s in STUDENTS_DATA:
+                    conn.execute(text("INSERT INTO Students (RollNo, Name, Age, Grade) VALUES (:r, :n, :a, :g) ON CONFLICT (RollNo) DO NOTHING"), 
+                                {"r": s["RollNo"], "n": s["Name"], "a": s["Age"], "g": s["Grade"]})
+                conn.commit()
+            return {"message": f"Seeded {len(STUDENTS_DATA)} rows into SQL table Students"}
+    except Exception as e:
+        logger.error(f"Seeding failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/databases/{database_id}/analysis", response_model=SchemaAnalysisResponse)
+async def get_database_analysis(
+    database_id: int,
+    db: Session = Depends(get_db)
+):
+    """Get AI-powered architectural analysis of the database schema"""
+    
+    db_conn = db.query(DatabaseConnection).filter(
+        DatabaseConnection.id == database_id
+    ).first()
+    
+    if not db_conn:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Database connection not found"
+        )
+    
+    # Get schema information
+    try:
+        inspector = DatabaseInspector(db_conn.connection_string)
+        schema_info = inspector.get_schema_info()
+        
+        # Analyze with AI
+        analysis = await ai_service.analyze_schema(schema_info)
+        return SchemaAnalysisResponse(**analysis)
+    except Exception as e:
+        logger.error(f"Schema analysis failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Analysis failed: {str(e)}"
+        )

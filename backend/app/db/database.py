@@ -4,6 +4,7 @@ from sqlalchemy.orm import sessionmaker, Session
 from typing import Generator, Dict, List, Any
 from app.core.config import settings
 import logging
+import certifi
 import os
 
 logger = logging.getLogger(__name__)
@@ -42,7 +43,13 @@ except Exception as e:
 # MongoDB global setup (optional - for app-level features, NOT user databases)
 try:
     from pymongo import MongoClient
-    mongo_client = MongoClient(settings.MONGODB_URL, serverSelectionTimeoutMS=3000)
+    mongo_client = MongoClient(
+        settings.MONGODB_URL, 
+        serverSelectionTimeoutMS=3000, 
+        tls=True,
+        tlsCAFile=certifi.where(),
+        tlsAllowInvalidCertificates=True
+    )
     mongo_client.admin.command('ping')
     mongo_db = mongo_client.get_database("querymind")
     logger.info("Connected to global MongoDB")
@@ -71,7 +78,17 @@ class DatabaseInspector:
         if self.is_mongodb:
             from pymongo import MongoClient
             try:
-                self.mongo_client = MongoClient(self.db_url, serverSelectionTimeoutMS=5000)
+                options = {
+                    "serverSelectionTimeoutMS": 5000,
+                    "connectTimeoutMS": 5000,
+                    "socketTimeoutMS": 5000,
+                    "tls": True,
+                    "tlsCAFile": certifi.where(),
+                    "tlsAllowInvalidCertificates": True,
+                    "retryWrites": True,
+                    "authSource": "admin"
+                }
+                self.mongo_client = MongoClient(self.db_url, **options)
                 # Try to get database name from URL, otherwise use default
                 from urllib.parse import urlparse
                 parsed = urlparse(self.db_url)
@@ -112,10 +129,12 @@ class DatabaseInspector:
                         })
                 
                 tables[coll_name] = {
+                    "name": coll_name,
                     "columns": columns,
                     "foreign_keys": [],
                     "indexes": [],
-                    "primary_key": {"constrained_columns": ["_id"]}
+                    "primary_key": {"constrained_columns": ["_id"]},
+                    "sample_data": self.get_sample_data(coll_name, limit=3)
                 }
             
             # Use the actual string "mongodb" or "mongodb_atlas" as sent from the request
@@ -154,11 +173,20 @@ class DatabaseInspector:
                     "unique": idx["unique"]
                 })
             
+            # Get sample data for each table (small preview)
+            sample_data = []
+            try:
+                sample_data = self.get_sample_data(table_name, limit=50)
+            except Exception as e:
+                logger.warning(f"Could not fetch sample data for {table_name}: {e}")
+
             tables[table_name] = {
+                "name": table_name,
                 "columns": columns,
                 "foreign_keys": foreign_keys,
                 "indexes": indexes,
-                "primary_key": self.inspector.get_pk_constraint(table_name)
+                "primary_key": self.inspector.get_pk_constraint(table_name),
+                "sample_data": sample_data
             }
         
         return {
@@ -186,19 +214,53 @@ class DatabaseInspector:
         return relationships
     
     def get_sample_data(self, table_name: str, limit: int = 5) -> List[Dict]:
-        """Get sample data from a table"""
+        """Get sample data from a table safely converted to JSON-serializable types"""
+        import datetime
+        from decimal import Decimal
+        
+        def serialize_val(val):
+            if val is None:
+                return None
+            if isinstance(val, (int, float, str, bool)):
+                return val
+            if isinstance(val, Decimal):
+                return float(val)
+            if isinstance(val, (datetime.datetime, datetime.date, datetime.time)):
+                return val.isoformat()
+            return str(val)
+            
         if self.is_mongodb:
             docs = list(self.mongo_db[table_name].find().limit(limit))
-            # Convert ObjectId to string for JSON serialization
+            # Convert ObjectId and other non-standard types for JSON serialization
+            serialized_docs = []
             for doc in docs:
-                if "_id" in doc:
-                    doc["_id"] = str(doc["_id"])
-            return docs
+                safe_doc = {}
+                for k, v in doc.items():
+                    if type(v).__name__ == "ObjectId":
+                        safe_doc[k] = str(v)
+                    else:
+                        safe_doc[k] = serialize_val(v)
+                serialized_docs.append(safe_doc)
+            return serialized_docs
             
         with self.engine.connect() as conn:
-            result = conn.execute(text(f"SELECT * FROM {table_name} LIMIT {limit}"))
+            # Check column names to apply a heuristic sort
+            try:
+                col_query = conn.execute(text(f"SELECT * FROM {table_name} LIMIT 0"))
+                col_names = [k.lower() for k in col_query.keys()]
+            except Exception:
+                col_names = []
+                
+            sort_sql = ""
+            for sort_col in ['revenue', 'salary', 'total_revenue', 'amount', 'score']:
+                if sort_col in col_names:
+                    sort_sql = f" ORDER BY {sort_col} DESC"
+                    break
+                    
+            result = conn.execute(text(f"SELECT * FROM {table_name}{sort_sql} LIMIT {limit}"))
             columns = result.keys()
-            return [dict(zip(columns, row)) for row in result]
+            
+            return [{col: serialize_val(val) for col, val in zip(columns, row)} for row in result]
 
 
 def init_db():

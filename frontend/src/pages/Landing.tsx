@@ -25,7 +25,7 @@ export default function Landing() {
                 </div>
                 <button
                     onClick={() => navigate('/dashboard')}
-                    className="px-5 py-2.5 glass-effect rounded-full text-sm font-bold hover:bg-white/10 transition-all border border-white/10"
+                    className="px-6 py-2.5 glass-effect rounded-full text-sm font-bold hover:bg-white/10 dark:hover:bg-white/15 transition-all border border-white/10 hover:border-white/20 active:scale-95"
                 >
                     Sign In
                 </button>
@@ -72,13 +72,13 @@ export default function Landing() {
                 >
                     <button
                         onClick={() => navigate('/dashboard')}
-                        className="group px-8 py-5 bg-primary-600 hover:bg-primary-500 text-white font-black rounded-2xl transition-all shadow-2xl shadow-primary-600/40 flex items-center gap-3 text-lg active:scale-[0.98]"
+                        className="btn-premium group"
                     >
                         Get Started Free
                         <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
                     </button>
 
-                    <button className="px-8 py-5 glass-effect rounded-2xl font-bold hover:bg-white/10 transition-all text-lg border border-white/10">
+                    <button className="btn-glass">
                         Watch Demo
                     </button>
                 </motion.div>
